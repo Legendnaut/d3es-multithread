@@ -323,7 +323,16 @@ static bool RB_GLSL_InitShaders(void) {
 	memset(&interactionPhongShader, 0, sizeof(shaderProgram_t));
 
 	R_LoadGLSLShader(interactionPhongShaderVP, &interactionPhongShader, GL_VERTEX_SHADER);
-	R_LoadGLSLShader(interactionPhongShaderFP, &interactionPhongShader, GL_FRAGMENT_SHADER);
+	{
+		// Pi: with the default exponent of 3, x^3 as two multiplies gives the same
+		// result as pow() but avoids its log2/exp2 special-function ops per pixel.
+		// (Changing r_specularExponent needs a vid_restart to take effect.)
+		idStr fp = interactionPhongShaderFP;
+		if ( r_specularExponent.GetFloat() == 3.0f ) {
+			fp.Replace( "pow(RdotV, u_specularExponent)", "(RdotV * RdotV * RdotV)" );
+		}
+		R_LoadGLSLShader(fp.c_str(), &interactionPhongShader, GL_FRAGMENT_SHADER);
+	}
 
 	if ( !R_LinkGLSLShader(&interactionPhongShader, "interactionPhong") &&
 	        !R_ValidateGLSLProgram(&interactionPhongShader)) {
