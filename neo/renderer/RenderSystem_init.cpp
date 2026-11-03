@@ -139,6 +139,9 @@ idCVar r_lightScale( "r_lightScale", "2", CVAR_RENDERER | CVAR_FLOAT, "all light
 idCVar r_lightSourceRadius( "r_lightSourceRadius", "0", CVAR_RENDERER | CVAR_FLOAT, "for soft-shadow sampling" );
 idCVar r_flareSize( "r_flareSize", "1", CVAR_RENDERER | CVAR_FLOAT, "scale the flare deforms from the material def" );
 
+// Pi: shadow level-of-detail and diagnostics
+idCVar r_shadowLOD( "r_shadowLOD", "0", CVAR_RENDERER | CVAR_FLOAT | CVAR_ARCHIVE, "skip stencil shadows for lights covering less than this fraction of the screen (0 = off, e.g. 0.05 = 5%)" );
+idCVar r_skipShadowDraw( "r_skipShadowDraw", "0", CVAR_RENDERER | CVAR_BOOL, "build shadow volumes but don't draw them (to split CPU vs GPU shadow cost)" );
 idCVar r_useExternalShadows( "r_useExternalShadows", "1", CVAR_RENDERER | CVAR_INTEGER, "1 = skip drawing caps when outside the light volume, 2 = force to no caps for testing", 0, 2, idCmdSystem::ArgCompletion_Integer<0,2> );
 idCVar r_useOptimizedShadows( "r_useOptimizedShadows", "1", CVAR_RENDERER | CVAR_BOOL, "use the dmap generated static shadow volumes" );
 idCVar r_useScissor( "r_useScissor", "1", CVAR_RENDERER | CVAR_BOOL, "scissor clip as portals and lights are processed" );

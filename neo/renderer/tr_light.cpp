@@ -1509,4 +1509,25 @@ void R_RemoveUnecessaryViewLights( void ) {
 			vLight->scissorRect.Intersect( surfRect );
 		}
 	}
+
+	// Pi: shadow LOD. Lights that only cover a small part of the screen
+	// keep their lighting but skip stencil shadows, which are fill-rate heavy.
+	const float lod = r_shadowLOD.GetFloat();
+	if ( lod > 0.0f && !tr.viewDef->isSubview ) {
+		const float viewW = tr.viewDef->viewport.x2 + 1 - tr.viewDef->viewport.x1;
+		const float viewH = tr.viewDef->viewport.y2 + 1 - tr.viewDef->viewport.y1;
+		const float minArea = lod * viewW * viewH;
+		for ( vLight = tr.viewDef->viewLights ; vLight ; vLight = vLight->next ) {
+			if ( !vLight->localShadows && !vLight->globalShadows ) {
+				continue;
+			}
+			const idScreenRect &r = vLight->scissorRect;
+			const float w = r.x2 + 1 - r.x1;
+			const float h = r.y2 + 1 - r.y1;
+			if ( w <= 0.0f || h <= 0.0f || w * h < minArea ) {
+				vLight->localShadows = NULL;
+				vLight->globalShadows = NULL;
+			}
+		}
+	}
 }

@@ -303,7 +303,7 @@ if(D3_COMPILER_IS_GCC_OR_CLANG)
 		add_link_options(-fprofile-generate=${PGO_DIR})
 	elseif(PGO STREQUAL "USE")
 		message(STATUS "PGO: using profile from ${PGO_DIR}")
-		add_compile_options(-fprofile-use=${PGO_DIR} -fprofile-correction -fprofile-partial-training -Wno-missing-profile)
+		add_compile_options(-fprofile-use=${PGO_DIR} -fprofile-correction -fprofile-partial-training -Wno-missing-profile -Wno-coverage-mismatch)
 		add_link_options(-fprofile-use=${PGO_DIR})
 	endif()
 
