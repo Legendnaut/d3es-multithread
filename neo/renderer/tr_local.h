@@ -880,7 +880,8 @@ extern idCVar r_usePreciseTriangleInteractions;	// 1 = do winding clipping to de
 extern idCVar r_useTurboShadow;			// 1 = use the infinite projection with W technique for dynamic shadows
 extern idCVar r_useExternalShadows;
 extern idCVar r_shadowLOD;
-extern idCVar r_skipShadowDraw;		// 1 = skip drawing caps when outside the light volume
+extern idCVar r_skipShadowDraw;
+extern idCVar r_shadowFillTest;		// 1 = skip drawing caps when outside the light volume
 extern idCVar r_useOptimizedShadows;	// 1 = use the dmap generated static shadow volumes
 extern idCVar r_useShadowProjectedCull;	// 1 = discard triangles outside light volume before shadowing
 extern idCVar r_useDeferredTangents;	// 1 = don't always calc tangents after deform

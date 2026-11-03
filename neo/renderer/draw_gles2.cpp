@@ -881,6 +881,10 @@ static void RB_T_GLSL_Shadow(const drawSurf_t* surf, const viewLight_t* vLight) 
 		qglStencilOpSeparate(backEnd.viewDef->isMirror ? GL_FRONT : GL_BACK, GL_KEEP, GL_KEEP, GL_INCR);
 		qglStencilOpSeparate(backEnd.viewDef->isMirror ? GL_BACK : GL_FRONT, GL_KEEP, GL_KEEP, GL_DECR);
 	}
+	if ( r_shadowFillTest.GetBool() ) {
+		// diagnostic: keep the draw call, drop (almost) all of its pixels
+		qglScissor( backEnd.viewDef->viewport.x1, backEnd.viewDef->viewport.y1, 1, 1 );
+	}
 	RB_DrawShadowElementsWithCounters(surf, numIndexes);
 
 	// patent-free work around
@@ -1024,6 +1028,14 @@ void RB_GLSL_StencilShadowPass(const drawSurf_t* drawSurfs, const viewLight_t* v
 
 	if ( r_shadowPolygonFactor.GetFloat() || r_shadowPolygonOffset.GetFloat()) {
 		qglDisable(GL_POLYGON_OFFSET_FILL);
+	}
+
+	if ( r_shadowFillTest.GetBool() ) {
+		// restore the real scissor for the lighting passes that follow
+		qglScissor( backEnd.viewDef->viewport.x1 + backEnd.currentScissor.x1,
+		            backEnd.viewDef->viewport.y1 + backEnd.currentScissor.y1,
+		            backEnd.currentScissor.x2 + 1 - backEnd.currentScissor.x1,
+		            backEnd.currentScissor.y2 + 1 - backEnd.currentScissor.y1 );
 	}
 
 	qglStencilFunc(GL_GEQUAL, 128, 255);
