@@ -929,6 +929,7 @@ PurgeImage
 void idImage::PurgeImage() {
 	if ( texnum != TEXTURE_NOT_LOADED ) {
 		qglDeleteTextures( 1, &texnum );	// this should be the ONLY place it is ever called!
+		GL_TexBindForget( texnum );
 		texnum = TEXTURE_NOT_LOADED;
 	}
 }
@@ -957,9 +958,13 @@ bool idImage::Bind() {
 
 	// bind the texture
 	if ( type == TT_2D ) {
-		qglBindTexture( GL_TEXTURE_2D, texnum );
+		if ( !GL_TexBindCached( 0, texnum ) ) {
+			qglBindTexture( GL_TEXTURE_2D, texnum );
+		}
 	} else if ( type == TT_CUBIC ) {
-		qglBindTexture( GL_TEXTURE_CUBE_MAP, texnum );
+		if ( !GL_TexBindCached( 1, texnum ) ) {
+			qglBindTexture( GL_TEXTURE_CUBE_MAP, texnum );
+		}
 	}
 	return true;
 }
@@ -987,9 +992,13 @@ void idImage::BindFragment() {
 
 	// bind the texture
 	if ( type == TT_2D ) {
-		qglBindTexture( GL_TEXTURE_2D, texnum );
+		if ( !GL_TexBindCached( 0, texnum ) ) {
+			qglBindTexture( GL_TEXTURE_2D, texnum );
+		}
 	} else if ( type == TT_CUBIC ) {
-		qglBindTexture( GL_TEXTURE_CUBE_MAP, texnum );
+		if ( !GL_TexBindCached( 1, texnum ) ) {
+			qglBindTexture( GL_TEXTURE_CUBE_MAP, texnum );
+		}
 	}
 }
 

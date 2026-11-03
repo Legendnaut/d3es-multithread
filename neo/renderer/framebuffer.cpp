@@ -171,6 +171,7 @@ void R_InitFrameBuffer()
 	// Create texture
 	glGenTextures(1, &m_framebuffer_texture);
 	glBindTexture(GL_TEXTURE_2D, m_framebuffer_texture);
+	GL_TexBindReset(); // bypassed the bind cache
 	
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, m_framebuffer_width, m_framebuffer_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
 	if(r_framebufferFilter.GetInteger() == 0)
@@ -259,6 +260,7 @@ void R_FrameBufferEnd()
 
     // Bind the texture
     glBindTexture(GL_TEXTURE_2D, m_framebuffer_texture);
+    GL_TexBindReset(); // bypassed the bind cache
 
     // Unbind any VBOs
     vertexCache.UnbindIndex();

@@ -1704,7 +1704,9 @@ BindNull
 ===============
 */
 void idImageManager::BindNull() {
-	qglBindTexture( GL_TEXTURE_2D, 0 );
+	if ( !GL_TexBindCached( 0, 0 ) ) {
+		qglBindTexture( GL_TEXTURE_2D, 0 );
+	}
 }
 
 /*

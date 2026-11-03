@@ -601,6 +601,14 @@ typedef struct {
 } performanceCounters_t;
 
 const int MAX_MULTITEXTURE_UNITS =	8;
+
+// Pi: remember which texture is bound on each unit so redundant
+// glBindTexture calls (the same light textures for every surface) are skipped.
+// target: 0 = 2D, 1 = cube map. Unit -1 (unknown) is never cached.
+bool	GL_TexBindCached( int target, GLuint texnum );
+void	GL_TexBindForget( GLuint texnum );	// texture deleted: GL unbinds it everywhere
+void	GL_TexBindReset( void );			// forget everything (new context / default state)
+
 typedef struct {
 	int			faceCulling;
 	int			glStateBits;

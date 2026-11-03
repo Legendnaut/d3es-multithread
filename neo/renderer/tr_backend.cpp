@@ -72,6 +72,7 @@ void RB_SetDefaultGLState( void ) {
 		qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
 	}
 
+	GL_TexBindReset();
 	backEnd.glState.currentTexture = -1;  // Force texture unit to be reset
 	for ( i = glConfig.maxTextureUnits - 1 ; i >= 0 ; i-- ) {
 		GL_SelectTexture( i );
@@ -86,6 +87,45 @@ void RB_SetDefaultGLState( void ) {
 //=============================================================================
 
 
+
+/*
+====================
+Texture bind cache (Pi)
+====================
+*/
+idCVar r_texBindCache( "r_texBindCache", "1", CVAR_RENDERER | CVAR_BOOL, "skip redundant texture binds" );
+static GLuint	texBindCache[MAX_MULTITEXTURE_UNITS][2];
+static bool		texBindValid[MAX_MULTITEXTURE_UNITS][2];
+
+bool GL_TexBindCached( int target, GLuint texnum ) {
+	const int unit = backEnd.glState.currentTexture;
+	if ( unit < 0 || unit >= MAX_MULTITEXTURE_UNITS || !r_texBindCache.GetBool() ) {
+		if ( unit >= 0 && unit < MAX_MULTITEXTURE_UNITS ) {
+			texBindValid[unit][target] = false;
+		}
+		return false;	// unknown unit: always bind
+	}
+	if ( texBindValid[unit][target] && texBindCache[unit][target] == texnum ) {
+		return true;
+	}
+	texBindCache[unit][target] = texnum;
+	texBindValid[unit][target] = true;
+	return false;
+}
+
+void GL_TexBindForget( GLuint texnum ) {
+	for ( int u = 0; u < MAX_MULTITEXTURE_UNITS; u++ ) {
+		for ( int t = 0; t < 2; t++ ) {
+			if ( texBindCache[u][t] == texnum ) {
+				texBindValid[u][t] = false;
+			}
+		}
+	}
+}
+
+void GL_TexBindReset( void ) {
+	memset( texBindValid, 0, sizeof( texBindValid ) );
+}
 
 /*
 ====================
