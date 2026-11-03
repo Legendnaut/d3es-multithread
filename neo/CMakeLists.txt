@@ -56,6 +56,8 @@ endif()
 option(DEDICATED	"Build the dedicated server" OFF)
 option(ONATIVE		"Optimize for the host CPU" OFF)
 option(PI4		"Tune for Raspberry Pi 4 (Cortex-A72): -mcpu, -O3, LTO" OFF)
+set(PGO "" CACHE STRING "Profile-guided optimization: empty (off), GEN (record a profile) or USE (build with the profile)")
+set(PGO_DIR "${CMAKE_BINARY_DIR}/../pgo-profile" CACHE PATH "Where PGO profile data is written/read")
 option(SDL2			"Use SDL2 instead of SDL1.2" ON)
 option(REPRODUCIBLE_BUILD "Replace __DATE__ and __TIME__ by hardcoded values for reproducible builds" OFF)
 
@@ -291,6 +293,18 @@ if(D3_COMPILER_IS_GCC_OR_CLANG)
 	if(PI4)
 		add_compile_options(-mcpu=cortex-a72 -mtune=cortex-a72)
 		set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+	endif()
+
+	# Profile-guided optimization (GCC). GEN: instrumented build that writes
+	# profile data on clean exit. USE: rebuild optimized with that data.
+	if(PGO STREQUAL "GEN")
+		message(STATUS "PGO: generating profile into ${PGO_DIR}")
+		add_compile_options(-fprofile-generate=${PGO_DIR} -fprofile-update=atomic)
+		add_link_options(-fprofile-generate=${PGO_DIR})
+	elseif(PGO STREQUAL "USE")
+		message(STATUS "PGO: using profile from ${PGO_DIR}")
+		add_compile_options(-fprofile-use=${PGO_DIR} -fprofile-correction -fprofile-partial-training -Wno-missing-profile)
+		add_link_options(-fprofile-use=${PGO_DIR})
 	endif()
 
 	if(FORCE_COLORED_OUTPUT)
