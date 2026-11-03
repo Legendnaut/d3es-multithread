@@ -83,7 +83,7 @@ void idGuiModel::WriteToDemo( idDemoFile *demo ) {
 	i = indexes.Num();
 	demo->WriteInt( i );
 	for ( j = 0; j < i; j++ ) {
-		demo->WriteInt(indexes[j] );
+		demo->WriteInt( (int)indexes[j] );
 	}
 
 	i = surfaces.Num();
@@ -132,11 +132,11 @@ void idGuiModel::ReadFromDemo( idDemoFile *demo ) {
 	demo->ReadInt( i );
 	indexes.SetNum( i, false );
 	for ( j = 0; j < i; j++ ) {
-#if GL_INDEX_TYPE == GL_UNSIGNED_SHORT
-		demo->ReadShort( indexes[j] );
-#else
-		demo->ReadInt( indexes[j] );
-#endif
+		// Pi fix: demos always store indexes as 4-byte ints, even when
+		// glIndex_t is a 2-byte short, so read an int and narrow it.
+		int idx;
+		demo->ReadInt( idx );
+		indexes[j] = (glIndex_t)idx;
 	}
 
 	i = surfaces.Num();
