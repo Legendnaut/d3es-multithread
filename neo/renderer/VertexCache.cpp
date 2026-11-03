@@ -50,6 +50,7 @@ static const int	EXPAND_HEADERS = 1024;
 idCVar idVertexCache::r_showVertexCache("r_showVertexCache", "0", CVAR_INTEGER | CVAR_RENDERER, "");
 idCVar idVertexCache::r_vertexBufferMegs("r_vertexBufferMegs", "128", CVAR_INTEGER | CVAR_RENDERER, "");
 idCVar idVertexCache::r_freeVertexBuffer("r_freeVertexBuffer", "1", CVAR_BOOL | CVAR_RENDERER, "");
+idCVar idVertexCache::r_tempVboRing("r_tempVboRing", "1", CVAR_BOOL | CVAR_RENDERER | CVAR_ARCHIVE, "reuse a ring of dynamic vertex buffers instead of reallocating them every frame (needs restart)");
 
 idVertexCache		vertexCache;
 
@@ -270,10 +271,19 @@ void idVertexCache::Init() {
 
 	vboMax = 0;
 
+	useTempVboRing = r_tempVboRing.GetBool() && !USE_MAP;
+
 	// Allocate the temporary buffers (number of temporary buffers is NUM_VERTEX_FRAMES)
 	for (int i = 0; i < NUM_VERTEX_FRAMES; i++) {
 		tempBuffers[i] = CreateTempVbo(frameBytes, false);
 		tempIndexBuffers[i] = CreateTempVbo(frameBytes, true);
+		tempVboRingPos[i] = 0;
+		tempVboRing[i][0] = tempBuffers[i]->vbo;
+		tempIndexVboRing[i][0] = tempIndexBuffers[i]->vbo;
+		for (int k = 1; k < TEMP_VBO_RING; k++) {
+			tempVboRing[i][k] = useTempVboRing ? CreateRingVbo(frameBytes, false) : tempBuffers[i]->vbo;
+			tempIndexVboRing[i][k] = useTempVboRing ? CreateRingVbo(frameBytes, true) : tempIndexBuffers[i]->vbo;
+		}
 		dynamicHeaders[i].next = dynamicHeaders[i].prev = &dynamicHeaders[i];
         dynamicIndexHeaders[i].next = dynamicIndexHeaders[i].prev = &dynamicIndexHeaders[i];
 		deferredFreeList[i].next = deferredFreeList[i].prev = &deferredFreeList[i];
@@ -349,6 +359,26 @@ vertCache_t* idVertexCache::CreateTempVbo(int bytes, bool indexBuffer)
 	return block;
 }
 
+
+/*
+===========
+idVertexCache::CreateRingVbo
+===========
+*/
+GLuint idVertexCache::CreateRingVbo(int bytes, bool indexBuffer) {
+	GLuint vbo = 0;
+	qglGenBuffers(1, &vbo);
+	if (indexBuffer) {
+		qglBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo);
+		currentBoundVBO_Index = vbo;
+		qglBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)bytes, 0, GL_STREAM_DRAW);
+	} else {
+		qglBindBuffer(GL_ARRAY_BUFFER, vbo);
+		currentBoundVBO = vbo;
+		qglBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)bytes, 0, GL_STREAM_DRAW);
+	}
+	return vbo;
+}
 
 /*
 ===========
@@ -691,7 +721,14 @@ void  idVertexCache::BeginBackEnd(int which)
 		qglBindBuffer(GL_ELEMENT_ARRAY_BUFFER, tempIndexBuffers[which]->vbo);
     	currentBoundVBO_Index =  tempIndexBuffers[which]->vbo;
 		//qglBufferSubData(GL_ELEMENT_ARRAY_BUFFER,0, dynamicAllocThisFrame_Index[which], tempIndexBuffers[which]->frontEndMemory);
-		qglBufferData(GL_ELEMENT_ARRAY_BUFFER, dynamicAllocThisFrame_Index[which], tempIndexBuffers[which]->frontEndMemory, GL_STREAM_DRAW);
+		if ( useTempVboRing ) {
+			// ring buffer was last used frames ago: update in place, no reallocation
+			if ( dynamicAllocThisFrame_Index[which] > 0 ) {
+				qglBufferSubData(GL_ELEMENT_ARRAY_BUFFER, 0, dynamicAllocThisFrame_Index[which], tempIndexBuffers[which]->frontEndMemory);
+			}
+		} else {
+			qglBufferData(GL_ELEMENT_ARRAY_BUFFER, dynamicAllocThisFrame_Index[which], tempIndexBuffers[which]->frontEndMemory, GL_STREAM_DRAW);
+		}
 	}
 #endif
 
@@ -710,7 +747,13 @@ void  idVertexCache::BeginBackEnd(int which)
 		qglBindBuffer(GL_ARRAY_BUFFER, tempBuffers[which]->vbo);
     	currentBoundVBO = tempBuffers[which]->vbo;
 		//qglBufferSubData(GL_ARRAY_BUFFER,0, dynamicAllocThisFrame[which], tempBuffers[which]->frontEndMemory);
-		qglBufferData(GL_ARRAY_BUFFER, dynamicAllocThisFrame[which], tempBuffers[which]->frontEndMemory, GL_STREAM_DRAW);
+		if ( useTempVboRing ) {
+			if ( dynamicAllocThisFrame[which] > 0 ) {
+				qglBufferSubData(GL_ARRAY_BUFFER, 0, dynamicAllocThisFrame[which], tempBuffers[which]->frontEndMemory);
+			}
+		} else {
+			qglBufferData(GL_ARRAY_BUFFER, dynamicAllocThisFrame[which], tempBuffers[which]->frontEndMemory, GL_STREAM_DRAW);
+		}
 	}
 #endif
 
@@ -769,6 +812,15 @@ void idVertexCache::EndFrame() {
 	currentFrame = tr.frameCount;
 
 	listNum = currentFrame % NUM_VERTEX_FRAMES;
+
+	if ( useTempVboRing ) {
+		// switch this list to the next GPU buffer in its ring before the
+		// front end starts filling it; blocks record the vbo id at Alloc time
+		int pos = ( tempVboRingPos[listNum] + 1 ) % TEMP_VBO_RING;
+		tempVboRingPos[listNum] = pos;
+		tempBuffers[listNum]->vbo = tempVboRing[listNum][pos];
+		tempIndexBuffers[listNum]->vbo = tempIndexVboRing[listNum][pos];
+	}
 
 	staticAllocThisFrame = 0;
 	staticCountThisFrame = 0;

@@ -117,6 +117,7 @@ private:
 	static idCVar r_showVertexCache;
 	static idCVar r_vertexBufferMegs;
 	static idCVar r_freeVertexBuffer;
+	static idCVar r_tempVboRing;
 
 	int staticCountTotal;
 	int staticAllocTotal;    // for end of frame purging
@@ -141,6 +142,16 @@ private:
 
 	vertCache_t *tempBuffers[NUM_VERTEX_FRAMES];    // allocated at startup
 	vertCache_t *tempIndexBuffers[NUM_VERTEX_FRAMES];    // allocated at startup (for Index buffers)
+
+	// Pi: ring of GPU buffers per temp list, so each frame's dynamic data is
+	// written into a buffer the GPU finished with frames ago (glBufferSubData),
+	// instead of glBufferData reallocating a new GPU buffer twice per frame.
+	static const int TEMP_VBO_RING = 3;
+	bool   useTempVboRing;
+	GLuint tempVboRing[NUM_VERTEX_FRAMES][TEMP_VBO_RING];
+	GLuint tempIndexVboRing[NUM_VERTEX_FRAMES][TEMP_VBO_RING];
+	int    tempVboRingPos[NUM_VERTEX_FRAMES];
+	GLuint CreateRingVbo(int bytes, bool indexBuffer);
 
 	bool tempOverflow;      // had to alloc a temp in static memory
 
