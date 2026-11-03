@@ -16,11 +16,16 @@ echo "== Recording 20 seconds, keep fighting =="
 sudo perf record -F 499 -p "$pid" -o /tmp/d3.perf -- sleep 20 2>/dev/null
 
 OUT=~/d3-profile.txt
+R="sudo perf report -i /tmp/d3.perf --stdio --no-children"
 {
   echo "### per thread"
-  sudo perf report -i /tmp/d3.perf --stdio --no-children --sort tid 2>/dev/null | grep -v '^#' | grep -v '^$' | head -15
-  echo "### top functions"
-  sudo perf report -i /tmp/d3.perf --stdio --no-children --sort dso,sym --percent-limit 0.4 2>/dev/null | grep -v '^#' | grep -v '^$' | head -70
+  $R --sort comm 2>/dev/null | grep -v '^#' | grep -v '^$' | head -10
+  echo "### render thread: by library"
+  $R --sort comm,dso 2>/dev/null | grep -v '^#' | grep -v '^$' | grep renderThread | head -12
+  echo "### render thread: top functions"
+  $R --sort comm,dso,sym 2>/dev/null | grep -v '^#' | grep -v '^$' | grep renderThread | head -40
+  echo "### main thread: top functions"
+  $R --sort comm,dso,sym 2>/dev/null | grep -v '^#' | grep -v '^$' | grep -v renderThread | head -25
 } > "$OUT"
 echo
 echo "Done! Results saved to $OUT"
