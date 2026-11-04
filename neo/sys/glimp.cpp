@@ -631,8 +631,35 @@ void GLimp_Shutdown() {
 GLimp_SwapBuffers
 ===================
 */
+// Pi: tell the tile-based GPU that depth and stencil are not needed after the
+// frame, so it skips writing them from tile memory back to RAM every frame.
+// The visible image is unaffected (depth/stencil are cleared at frame start).
+static idCVar r_discardDepthStencil( "r_discardDepthStencil", "1", CVAR_RENDERER | CVAR_BOOL, "discard depth/stencil at end of frame (saves memory bandwidth on tile GPUs)" );
+typedef void (GL_APIENTRY *PFN_DiscardFramebufferEXT)( GLenum target, GLsizei numAttachments, const GLenum *attachments );
+static PFN_DiscardFramebufferEXT pDiscardFramebufferEXT = NULL;
+static int discardState = 0;	// 0 = not checked, 1 = available, -1 = unavailable
+
+static void GLimp_DiscardDepthStencil() {
+	if ( discardState == 0 ) {
+		discardState = -1;
+		if ( SDL_GL_ExtensionSupported( "GL_EXT_discard_framebuffer" ) ) {
+			pDiscardFramebufferEXT = (PFN_DiscardFramebufferEXT)SDL_GL_GetProcAddress( "glDiscardFramebufferEXT" );
+			if ( pDiscardFramebufferEXT ) {
+				discardState = 1;
+			}
+		}
+		common->Printf( "GL_EXT_discard_framebuffer: %s\n", discardState == 1 ? "using" : "not available" );
+	}
+	if ( discardState == 1 && r_discardDepthStencil.GetBool() ) {
+		// default framebuffer attachments (GL_DEPTH_EXT, GL_STENCIL_EXT)
+		static const GLenum attachments[2] = { 0x1801, 0x1802 };
+		pDiscardFramebufferEXT( GL_FRAMEBUFFER, 2, attachments );
+	}
+}
+
 void GLimp_SwapBuffers() {
 #if SDL_VERSION_ATLEAST(2, 0, 0)
+	GLimp_DiscardDepthStencil();
 	SDL_GL_SwapWindow(window);
 #else
 	SDL_GL_SwapBuffers();
