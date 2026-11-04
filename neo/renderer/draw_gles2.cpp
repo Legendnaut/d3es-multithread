@@ -15,6 +15,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
 */
 
+#include <algorithm>
 #include "sys/platform.h"
 #include "renderer/VertexCache.h"
 
@@ -57,11 +58,39 @@ void GL_UseProgram(shaderProgram_t* program) {
 
 /*
 ====================
+GL_UniformChanged (Pi)
+
+Returns true if the uniform must be sent: its value differs from the last
+one sent to the current program for that slot. Uniform values are stored per
+program in GL, so the cache stays valid across program switches.
+====================
+*/
+idCVar r_uniformCache( "r_uniformCache", "1", CVAR_RENDERER | CVAR_BOOL, "skip glUniform calls whose value hasn't changed" );
+
+static bool GL_UniformChanged(GLint location, const void* value, int numWords) {
+	shaderProgram_t* p = backEnd.glState.currentProgram;
+	const int slot = location / (int)sizeof(GLint);
+	if ( !p || slot < 0 || slot >= 64 ) {
+		return true;
+	}
+	if ( r_uniformCache.GetBool() && p->uniformCacheLen[slot] == numWords &&
+	        memcmp(p->uniformCache[slot], value, numWords * 4) == 0 ) {
+		return false;
+	}
+	memcpy(p->uniformCache[slot], value, numWords * 4);
+	p->uniformCacheLen[slot] = (GLubyte)numWords;
+	return true;
+}
+
+/*
+====================
 GL_Uniform1fv
 ====================
 */
 static void GL_Uniform1fv(GLint location, const GLfloat* value) {
-	qglUniform1fv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, value);
+	if ( GL_UniformChanged(location, value, 1) ) {
+		qglUniform1fv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, value);
+	}
 }
 
 /*
@@ -70,7 +99,9 @@ GL_Uniform1iv
 ====================
 */
 static void GL_Uniform1iv(GLint location, const GLint* value) {
-	qglUniform1iv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, value);
+	if ( GL_UniformChanged(location, value, 1) ) {
+		qglUniform1iv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, value);
+	}
 }
 
 /*
@@ -79,7 +110,9 @@ GL_Uniform4fv
 ====================
 */
 static void GL_Uniform4fv(GLint location, const GLfloat* value) {
-	qglUniform4fv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, value);
+	if ( GL_UniformChanged(location, value, 4) ) {
+		qglUniform4fv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, value);
+	}
 }
 
 /*
@@ -88,7 +121,9 @@ GL_UniformMatrix4fv
 ====================
 */
 static void GL_UniformMatrix4fv(GLint location, const GLfloat* value) {
-	qglUniformMatrix4fv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, GL_FALSE, value);
+	if ( GL_UniformChanged(location, value, 16) ) {
+		qglUniformMatrix4fv(*( GLint * )((char*) backEnd.glState.currentProgram + location), 1, GL_FALSE, value);
+	}
 }
 
 /*
@@ -165,6 +200,7 @@ static bool R_LinkGLSLShader(shaderProgram_t* shaderProgram, const char* name) {
 	GLint linked;
 
 	shaderProgram->program = qglCreateProgram();
+	memset(shaderProgram->uniformCacheLen, 0, sizeof(shaderProgram->uniformCacheLen));	// new program: nothing sent yet
 
 	qglAttachShader(shaderProgram->program, shaderProgram->vertexShader);
 	qglAttachShader(shaderProgram->program, shaderProgram->fragmentShader);
@@ -738,6 +774,15 @@ RB_GLSL_CreateDrawInteractions
 
 =============
 */
+idCVar r_sortInteractions( "r_sortInteractions", "1", CVAR_RENDERER | CVAR_BOOL, "draw each light's surfaces grouped by space and material" );
+
+static bool RB_InteractionOrder(const drawSurf_t* a, const drawSurf_t* b) {
+	if ( a->space != b->space ) {
+		return a->space < b->space;
+	}
+	return a->material < b->material;
+}
+
 static void RB_GLSL_CreateDrawInteractions(const drawSurf_t* surf, const viewLight_t* vLight, const int depthFunc = GLS_DEPTHFUNC_EQUAL) {
 	if ( !surf ) {
 		return;
@@ -768,7 +813,21 @@ static void RB_GLSL_CreateDrawInteractions(const drawSurf_t* surf, const viewLig
 
 	backEnd.currentSpace = NULL;
 
-	for ( ; surf; surf = surf->nextOnLight ) {
+	// Pi: draw this light's surfaces grouped by space and material, so
+	// consecutive draws share textures and matrices (fewer driver state
+	// changes). These passes are purely additive (ONE,ONE, no depth write),
+	// so the order doesn't change the image.
+	static idList<const drawSurf_t*> sorted;
+	sorted.SetNum(0, false);
+	for ( const drawSurf_t* s2 = surf; s2; s2 = s2->nextOnLight ) {
+		sorted.Append(s2);
+	}
+	if ( r_sortInteractions.GetBool() && sorted.Num() > 2 ) {
+		std::stable_sort(sorted.Ptr(), sorted.Ptr() + sorted.Num(), RB_InteractionOrder);
+	}
+
+	for ( int si = 0; si < sorted.Num(); si++ ) {
+		surf = sorted[si];
 		// perform setup here that will not change over multiple interaction passes
 
 		if ( surf->space != backEnd.currentSpace ) {

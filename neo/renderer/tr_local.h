@@ -1325,6 +1325,11 @@ typedef struct shaderProgram_s {
 
 	GLint		u_fragmentMap[MAX_FRAGMENT_IMAGES];
 	GLint		u_fragmentCubeMap[MAX_FRAGMENT_IMAGES];
+
+	// Pi: last value sent for each uniform (slot = byte offset of its location
+	// field / 4), so unchanged uniforms are not re-sent to the driver
+	GLfloat		uniformCache[64][16];
+	GLubyte		uniformCacheLen[64];
 } shaderProgram_t;
 
 void R_ReloadGLSLPrograms_f(const idCmdArgs &args);
