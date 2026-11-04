@@ -888,6 +888,17 @@ extern idCVar r_usePreciseTriangleInteractions;	// 1 = do winding clipping to de
 extern idCVar r_useTurboShadow;			// 1 = use the infinite projection with W technique for dynamic shadows
 extern idCVar r_useExternalShadows;
 extern idCVar r_shadowLOD;
+// Pi: per-frame timing log (r_frameLog). Written by the render thread for the
+// frame it just finished, read by the main thread after waiting for it.
+struct piFrameStats_t {
+	int		draws;			// lighting/depth/gui draw calls
+	int		shadowDraws;	// shadow volume draw calls
+	double	renderMs;		// render thread: whole frame task
+	double	swapMs;			// render thread: time inside SwapBuffers (GPU/vsync wait)
+};
+extern piFrameStats_t	piFrameStats;
+double	Pi_NowMs( void );
+
 extern idCVar r_skipShadowDraw;
 extern idCVar r_shadowFillTest;		// 1 = skip drawing caps when outside the light volume
 extern idCVar r_useOptimizedShadows;	// 1 = use the dmap generated static shadow volumes

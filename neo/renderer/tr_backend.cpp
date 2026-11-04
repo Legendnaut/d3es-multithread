@@ -383,7 +383,9 @@ const void	RB_SwapBuffers( const void *data ) {
 
 	R_FrameBufferEnd();
 
+	const double swapStart = Pi_NowMs();
 	GLimp_SwapBuffers();
+	piFrameStats.swapMs += Pi_NowMs() - swapStart;
 
 	R_FrameBufferStart();
 }

@@ -628,8 +628,68 @@ void idRenderSystemLocal::BackendThread()
 }
 
 
+/*
+=============
+Pi frame log
+=============
+*/
+#include <time.h>
+#include <stdio.h>
+#include <stdlib.h>
+piFrameStats_t piFrameStats;
+idCVar r_frameLog( "r_frameLog", "0", CVAR_RENDERER | CVAR_BOOL, "write per-frame timings to ~/frame_log.csv (starts a new file each time it is turned on)" );
+
+double Pi_NowMs( void ) {
+	struct timespec ts;
+	clock_gettime( CLOCK_MONOTONIC, &ts );
+	return ts.tv_sec * 1000.0 + ts.tv_nsec / 1000000.0;
+}
+
+static FILE *	piLogFile = NULL;
+static double	piLastFrameStart = 0.0;
+static int		piLogFrame = 0;
+
+// called on the main thread right after the previous frame's render finished
+static void Pi_FrameLog( double mainWaitMs ) {
+	if ( !r_frameLog.GetBool() ) {
+		if ( piLogFile ) {
+			fclose( piLogFile );
+			piLogFile = NULL;
+			common->Printf( "frame log closed (%d frames)\n", piLogFrame );
+		}
+		return;
+	}
+	const double now = Pi_NowMs();
+	if ( !piLogFile ) {
+		const char *home = getenv( "HOME" );
+		idStr path = va( "%s/frame_log.csv", home ? home : "." );
+		piLogFile = fopen( path.c_str(), "w" );
+		if ( !piLogFile ) {
+			common->Printf( "frame log: can't open %s\n", path.c_str() );
+			r_frameLog.SetBool( false );
+			return;
+		}
+		fprintf( piLogFile, "frame,frame_ms,main_busy_ms,main_wait_ms,render_ms,swap_ms,draws,shadow_draws\n" );
+		common->Printf( "frame log: writing %s\n", path.c_str() );
+		piLogFrame = 0;
+		piLastFrameStart = now;
+		return;
+	}
+	const double frameMs = now - piLastFrameStart;
+	piLastFrameStart = now;
+	fprintf( piLogFile, "%d,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d\n", piLogFrame++,
+		frameMs, frameMs - mainWaitMs, mainWaitMs,
+		piFrameStats.renderMs, piFrameStats.swapMs,
+		piFrameStats.draws, piFrameStats.shadowDraws );
+}
+
 void idRenderSystemLocal::BackendThreadTask()
 {
+	const double taskStart = Pi_NowMs();
+	piFrameStats.draws = 0;
+	piFrameStats.shadowDraws = 0;
+	piFrameStats.swapMs = 0.0;
+
 	idImage * img;
 	// Purge all images
 	while( (img = globalImages->GetNextPurgeImage()) != NULL )
@@ -664,6 +724,8 @@ void idRenderSystemLocal::BackendThreadTask()
 		pixels = NULL;
 		pixelsCrop = NULL;
 	}
+
+	piFrameStats.renderMs = Pi_NowMs() - taskStart;
 
 	backendFinished = true;
 	Sys_TriggerEvent(TRIGGER_EVENT_BACKEND_FINISHED);
@@ -737,7 +799,9 @@ void idRenderSystemLocal::RenderCommands(renderCrop_t *pc, byte *pix)
 {
 
 	//Wait for last backend rendering to finish
+	const double waitStart = Pi_NowMs();
 	BackendThreadWait();
+	Pi_FrameLog( Pi_NowMs() - waitStart );
 
 	// Limit maximum FPS
 	int maxFPS = r_maxFps.GetInteger();

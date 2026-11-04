@@ -48,6 +48,7 @@ RB_DrawElementsWithCounters
 void RB_DrawElementsWithCounters( const drawSurf_t *surf ) {
 
 	backEnd.pc.c_drawElements++;
+	piFrameStats.draws++;
 
 	if ( surf->indexCache ) {
 		qglDrawElements( GL_TRIANGLES, surf->numIndexes, GL_INDEX_TYPE, (int *)vertexCache.Position( surf->indexCache ) );
@@ -71,6 +72,7 @@ May not use all the indexes in the surface if caps are skipped
 void RB_DrawShadowElementsWithCounters( const drawSurf_t *surf , int numIndexes ) {
 
 	backEnd.pc.c_shadowElements++;
+	piFrameStats.shadowDraws++;
 
 	if ( surf->indexCache ) {
 		qglDrawElements( GL_TRIANGLES, numIndexes, GL_INDEX_TYPE, (int *)vertexCache.Position( surf->indexCache ) );
