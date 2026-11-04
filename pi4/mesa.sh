@@ -21,6 +21,10 @@ else
 	CPUFLAGS=""	# only for testing the script on a non-Pi machine
 fi
 
+# With a profile GCC analyses more deeply and flags harmless debug-trace
+# format strings, which Mesa's -Werror=format turns into build errors.
+PGO_WARN="-Wno-error=format-overflow -Wno-error=format-truncation"
+
 OPTS=(
 	-Dbuildtype=release			# -O3
 	-Dgallium-drivers=v3d,vc4	# Pi 4 GPU (v3d) + display (vc4)
@@ -99,8 +103,8 @@ case "$1" in
 		fi
 		echo "== Found $n profile files =="
 		build build-pgo pgo -Db_pgo=use \
-			-Dc_args="$CPUFLAGS -fprofile-correction -Wno-missing-profile" \
-			-Dcpp_args="$CPUFLAGS -fprofile-correction -Wno-missing-profile" ;;
+			-Dc_args="$CPUFLAGS -fprofile-correction -Wno-missing-profile $PGO_WARN" \
+			-Dcpp_args="$CPUFLAGS -fprofile-correction -Wno-missing-profile $PGO_WARN" ;;
 	night)
 		{ deps; build build-tuned tuned
 		  build build-pgo pgo -Db_pgo=generate \
