@@ -1,3 +1,83 @@
+# D3ES for Raspberry Pi 4
+
+This fork of [emileb/d3es-multithread](https://github.com/emileb/d3es-multithread) tunes Doom 3 to run well on a **Raspberry Pi 4**, with the image unchanged: every optimization here is meant to produce the same picture as before, only faster.
+
+> **AI disclosure:** The code changes, scripts and this section were written by an AI (Anthropic's Claude), working with the repository owner, who tested every change on real Raspberry Pi 4 hardware and reported the results. Review the changes like you would any contribution before relying on them.
+
+## Results
+
+`timedemo demo1 usecache`, second run, 1024×768, Raspberry Pi 4 8GB (overclocked: `arm_freq=2000`, `gpu_freq=750`), Raspberry Pi OS 64-bit:
+
+| Step | fps |
+|---|---|
+| Stock dhewm3 | 15.9 |
+| d3es GLES2 renderer + demo bug fix | 29.4 |
+| + multithreaded renderer (`r_multithread 1`) | 31.1 |
+| + Cortex-A72 compiler tuning (`-DPI4=ON`) | 35.4 |
+| + profile-guided optimization (PGO) | 36.2 |
+| + shader, buffer and texture-bind fixes | ~39 |
+| + Pi-tuned Mesa driver (tuning, PGO, 2 patches) | 40.5 |
+| + depth/stencil discard at end of frame | 42.1 |
+| + per-light draw sorting, uniform cache | **44.8** |
+
+That's about **2.8× stock**. In normal play the game mostly runs at its 60 fps cap, with dips in the heaviest open areas.
+
+## What changed
+
+**Engine (`neo/`)**
+- **Demo bug fix:** render demos store triangle indexes as 4-byte ints, but d3es read them as 2-byte shorts, which broke `timedemo` with "Bad render demo token".
+- **Build options:** `-DPI4=ON` enables `-mcpu=cortex-a72`, `-O3` and LTO. `-DPGO=GEN|USE` runs a two-step profile-guided build.
+- **Fewer, cheaper driver calls:**
+  - Dynamic vertex/index buffers are reused from a ring instead of being reallocated every frame (`r_tempVboRing`).
+  - Redundant texture binds are skipped (`r_texBindCache`).
+  - Unchanged uniforms aren't re-sent (`r_uniformCache`).
+  - Each light's surfaces are drawn grouped by space and material (`r_sortInteractions`). These passes are additive, so the order doesn't change the result, and the GPU's texture cache works better.
+- **Tile-GPU friendly:** depth and stencil are discarded before each swap via `GL_EXT_discard_framebuffer` (`r_discardDepthStencil`).
+- **Shader:** the Phong specular `pow(x, 3)` is replaced by `x*x*x` for the default exponent.
+- Each of these switches defaults to `1`. Set one to `0` to turn its change off if you suspect a problem.
+
+**Driver (`pi4/mesa.sh`, `pi4/mesa-patches/`)**
+- Builds a private copy of the installed Mesa (same source and Raspberry Pi patches, via `apt-get source`) with only the v3d/vc4 drivers, `-O3 -mcpu=cortex-a72 -mno-outline-atomics`, and optional PGO. It installs to `~/mesa-pi4` and never touches the system driver.
+- `v3d_key_memo.py` patches the v3d driver to skip SHA1 hashing of shader-variant keys when a key was looked up recently.
+
+**Diagnostics** (test-only; some change the image while on)
+- `r_frameLog 1` writes per-frame timings (main/render thread, GPU wait, draw counts) to `~/frame_log.csv`.
+- `r_skipShadowDraw`, `r_shadowFillTest` split shadow cost into CPU, driver and GPU fill.
+- `r_shadowLOD` skips shadows for lights covering a small part of the screen. It's off by default because it **does** change the image.
+- `pi4/profile.sh` runs a `perf` CPU profile of a running game, broken down per thread.
+
+## Build and run on a Pi 4
+
+Raspberry Pi OS 64-bit. You need the **original Doom 3** game data (`base/pak000.pk4` to `pak008.pk4`, for example from the Steam version). The BFG Edition doesn't work.
+
+```sh
+sudo apt install git cmake build-essential libsdl2-dev libopenal-dev libcurl4-openssl-dev zlib1g-dev libgles-dev
+git clone https://github.com/Legendnaut/d3es-multithread.git ~/d3es
+
+# game data (adjust the path to your copy)
+mkdir -p ~/.local/share/dhewm3/base
+ln -s "/path/to/Doom 3/base/"pak00*.pk4 ~/.local/share/dhewm3/base/
+
+# PGO build: build, play a bit, quit with the console command "quit", rebuild
+bash ~/d3es/pi4/pgo.sh gen
+cd ~/d3es/build-pgo && ./dhewm3 +set r_multithread 1   # run "timedemo demo1 usecache", play a few minutes, then "quit"
+bash ~/d3es/pi4/pgo.sh use
+
+# optional: Pi-tuned Mesa driver (~1-1.5 h), then train and rebuild it
+bash ~/d3es/pi4/mesa.sh night
+bash ~/d3es/pi4/run.sh pgo          # play a bit, then "quit"
+bash ~/d3es/pi4/mesa.sh pgo-use
+
+# play
+bash ~/d3es/pi4/run.sh pgo          # or: run.sh (system driver), run.sh tuned
+```
+
+`run.sh` accepts extra game arguments, for example `bash ~/d3es/pi4/run.sh pgo +map game/alphalabs1`.
+
+**Benchmarking tips:** the first `timedemo` after launch is a warm-up, so use the second run. Vsync (`r_swapInterval 1`, the default) caps fps at your display's refresh rate.
+
+---
+
 # D3ES
 
 This repo is an update and clean up of the awesome D3WASM project (https://github.com/gabrielcuvillier/d3wasm) which brought GLES2 rendering to Dhewm3 (https://github.com/dhewm/dhewm3).
