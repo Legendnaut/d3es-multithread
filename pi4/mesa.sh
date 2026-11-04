@@ -12,18 +12,21 @@
 set -e -o pipefail
 
 BASE=~/mesa-pi4
+PATCHDIR="$(cd "$(dirname "$0")" && pwd)/mesa-patches"
 LOG=$BASE/build.log
 mkdir -p "$BASE"
 
 if [ "$(uname -m)" = "aarch64" ]; then
-	CPUFLAGS="-mcpu=cortex-a72 -mtune=cortex-a72"
+	# -mno-outline-atomics: the A72 has no LSE atomics, so call the LL/SC
+	# instructions directly instead of a runtime-dispatch helper function
+	CPUFLAGS="-mcpu=cortex-a72 -mtune=cortex-a72 -mno-outline-atomics"
 else
 	CPUFLAGS=""	# only for testing the script on a non-Pi machine
 fi
 
 # With a profile GCC analyses more deeply and flags harmless debug-trace
 # format strings, which Mesa's -Werror=format turns into build errors.
-PGO_WARN="-Wno-error=format-overflow -Wno-error=format-truncation"
+PGO_WARN="-Wno-error=format-overflow -Wno-error=format-truncation -Wno-coverage-mismatch"
 
 OPTS=(
 	-Dbuildtype=release			# -O3
@@ -77,6 +80,10 @@ source_dir() {
 build() {	# build <dir name> <install name> [extra meson args...]
 	local bdir=$BASE/$1 prefix=$BASE/$2; shift 2
 	local src; src=$(source_dir)
+	# Pi 4 driver patches (each checks the source and skips itself if it doesn't fit)
+	for patch in "$PATCHDIR"/*.py; do
+		python3 "$patch" "$src" || echo "== $(basename "$patch") skipped =="
+	done
 	echo "== Building Mesa from $src into $prefix =="
 	if [ -f "$bdir/build.ninja" ]; then
 		meson configure "$bdir" "$@"
