@@ -20,7 +20,7 @@ This fork of [emileb/d3es-multithread](https://github.com/emileb/d3es-multithrea
 | + depth/stencil discard at end of frame | 42.1 |
 | + per-light draw sorting, uniform cache | **44.8** |
 
-That's about **2.8× stock**. In normal play the game mostly runs at its 60 fps cap, with dips in the heaviest open areas.
+That's about **2.8× stock** in the benchmark. Real gameplay is heavier than the timedemo: in practice the game runs at roughly **30 fps**, lower in big open areas and busy fights. Your results will depend on cooling, overclock and screen resolution.
 
 ## What changed
 
