@@ -285,9 +285,8 @@ void rgba4444_convert_tex_image(
     GLenum type,
     const GLvoid *pixels) {
 	unsigned char const *cpixels = (unsigned char const *)pixels;
-	unsigned short *rgba4444data = (unsigned short *)malloc(2*width*height+1);
-	((unsigned char*)rgba4444data)[0]=1;
-	rgba4444data=(unsigned short *)((unsigned char*)rgba4444data+1);
+	// aligned buffer for the driver (the original wrote 16-bit texels at an odd address)
+	unsigned short *rgba4444data = (unsigned short *)malloc(2*width*height);
 	int i;
 	for (i = 0; i < width * height; i++) {
 		unsigned char r,g,b,a;
@@ -298,9 +297,12 @@ void rgba4444_convert_tex_image(
 		rgba4444data[i] = r << 12 | g << 8 | b << 4 | a;
 	}
 	qglTexImage2D(target, level, format, width, height,border,format,GL_UNSIGNED_SHORT_4_4_4_4,rgba4444data);
-	rgba4444data=(unsigned short *)((unsigned char*)rgba4444data-1);
 	if (cachefname!=0) {
-		fileSystem->WriteFile(cachefname, rgba4444data, width*height*2+1);
+		unsigned char *filedata = (unsigned char *)malloc(width*height*2+1);
+		filedata[0]=1;
+		memcpy(filedata+1, rgba4444data, width*height*2);
+		fileSystem->WriteFile(cachefname, filedata, width*height*2+1);
+		free(filedata);
 	}
 	free(rgba4444data);
 }
@@ -371,21 +373,34 @@ int uploadetc(char* cachefname,GLenum target, GLint level, GLint internalformat,
 	if( sz == -1 )
 		return 1;
 
+	// The cache file is: 1 header byte (0 = ETC1, 1 = RGBA4444) + texel data.
+	// The data starts at an odd offset, so copy it to an aligned buffer
+	// before handing it to the driver.
 	if (tmp[0]==0) {
-		if (sz==etc1_data_size(width,height)+1) {
-			qglCompressedTexImage2D(target,level,GL_ETC1_RGB8_OES,width,height,0,etc1_data_size(width,height),tmp + 1);
+		const int dataSize = etc1_data_size(width,height);
+		if (sz==dataSize+1) {
+			void *data = malloc(dataSize);
+			memcpy(data, tmp + 1, dataSize);
+			qglCompressedTexImage2D(target,level,GL_ETC1_RGB8_OES,width,height,0,dataSize,data);
+			free(data);
 		} else {
 			failed=1;
 		}
 	} else {
-		if (sz==width*height*2+1) {
-			qglTexImage2D(target,level,format,width,height,border,format,GL_UNSIGNED_SHORT_4_4_4_4,tmp + 1);
+		const int dataSize = width*height*2;
+		if (sz==dataSize+1) {
+			void *data = malloc(dataSize);
+			memcpy(data, tmp + 1, dataSize);
+			qglTexImage2D(target,level,format,width,height,border,format,GL_UNSIGNED_SHORT_4_4_4_4,data);
+			free(data);
 		} else {
 			failed=1;
 		}
 	}
 
-	tmp--;
+	// NB: the original code did "tmp--" here and freed the wrong pointer,
+	// which crashed with "idHeap::Msize: invalid memory block" as soon as
+	// any cached texture was loaded.
 	fileSystem->FreeFile(tmp);
 	return failed;
 }
