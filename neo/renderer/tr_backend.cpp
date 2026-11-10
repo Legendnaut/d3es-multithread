@@ -343,6 +343,8 @@ RB_SetBuffer
 
 =============
 */
+idCVar r_clearColorBuffer( "r_clearColorBuffer", "1", CVAR_RENDERER | CVAR_BOOL, "clear the colour buffer at the start of each frame (lets a tile GPU skip reloading the previous frame)" );
+
 static void	RB_SetBuffer( const void *data ) {
 	const setBufferCommand_t	*cmd;
 
@@ -365,6 +367,17 @@ static void	RB_SetBuffer( const void *data ) {
 			qglClearColor( 0.4f, 0.0f, 0.25f, 1.0f );
 		}
 		qglClear( GL_COLOR_BUFFER_BIT );
+	} else if ( r_clearColorBuffer.GetBool() ) {
+		// Pi: the engine never clears colour because the world always covers
+		// the screen. A tile GPU doesn't know that, so it reads last frame's
+		// image back into every tile before drawing over it. A full clear here
+		// tells it the old contents aren't needed. Every pixel is redrawn
+		// afterwards, so the picture is the same.
+		GL_State( GLS_DEFAULT );			// colour writes on
+		qglDisable( GL_SCISSOR_TEST );		// whole buffer, so it stays a cheap tile clear
+		qglClearColor( 0.0f, 0.0f, 0.0f, 1.0f );
+		qglClear( GL_COLOR_BUFFER_BIT );
+		qglEnable( GL_SCISSOR_TEST );
 	}
 }
 

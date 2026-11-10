@@ -669,7 +669,7 @@ static void Pi_FrameLog( double mainWaitMs ) {
 			r_frameLog.SetBool( false );
 			return;
 		}
-		fprintf( piLogFile, "frame,frame_ms,main_busy_ms,main_wait_ms,render_ms,swap_ms,draws,shadow_draws\n" );
+		fprintf( piLogFile, "frame,frame_ms,main_busy_ms,main_wait_ms,render_ms,swap_ms,draws,shadow_draws,nospec_draws\n" );
 		common->Printf( "frame log: writing %s\n", path.c_str() );
 		piLogFrame = 0;
 		piLastFrameStart = now;
@@ -677,10 +677,10 @@ static void Pi_FrameLog( double mainWaitMs ) {
 	}
 	const double frameMs = now - piLastFrameStart;
 	piLastFrameStart = now;
-	fprintf( piLogFile, "%d,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d\n", piLogFrame++,
+	fprintf( piLogFile, "%d,%.2f,%.2f,%.2f,%.2f,%.2f,%d,%d,%d\n", piLogFrame++,
 		frameMs, frameMs - mainWaitMs, mainWaitMs,
 		piFrameStats.renderMs, piFrameStats.swapMs,
-		piFrameStats.draws, piFrameStats.shadowDraws );
+		piFrameStats.draws, piFrameStats.shadowDraws, piFrameStats.noSpecDraws );
 }
 
 void idRenderSystemLocal::BackendThreadTask()
@@ -688,6 +688,7 @@ void idRenderSystemLocal::BackendThreadTask()
 	const double taskStart = Pi_NowMs();
 	piFrameStats.draws = 0;
 	piFrameStats.shadowDraws = 0;
+	piFrameStats.noSpecDraws = 0;
 	piFrameStats.swapMs = 0.0;
 
 	idImage * img;

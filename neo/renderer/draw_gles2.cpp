@@ -29,6 +29,84 @@ shaderProgram_t fogShader;
 shaderProgram_t blendLightShader;
 shaderProgram_t zfillShader;
 shaderProgram_t zfillClipShader;
+
+// Pi: extra programs that give the same pixels with less GPU work
+shaderProgram_t zfillOpaqueShader;				// depth fill for solid surfaces: no texture read, no discard
+shaderProgram_t interactionPhongNoSpecShader;	// Phong interaction for surfaces whose specular term is zero
+
+idCVar r_zfillOpaque( "r_zfillOpaque", "1", CVAR_RENDERER | CVAR_BOOL, "depth-fill solid surfaces with a shader that has no texture read or discard" );
+idCVar r_interactionNoSpec( "r_interactionNoSpec", "1", CVAR_RENDERER | CVAR_BOOL, "light surfaces that have no specular with a shader that skips the specular maths" );
+
+// gl_Position is computed exactly as in every other shader, so depth values match
+static const char * const zfillOpaqueShaderVP = R"(
+#version 100
+precision mediump float;
+
+attribute highp vec4 attr_Vertex;
+
+uniform highp mat4 u_modelViewProjectionMatrix;
+
+void main(void)
+{
+  gl_Position = u_modelViewProjectionMatrix * attr_Vertex;
+}
+)";
+
+static const char * const zfillOpaqueShaderFP = R"(
+#version 100
+precision mediump float;
+
+uniform lowp vec4 u_glColor;
+
+void main(void)
+{
+  gl_FragColor = u_glColor;
+}
+)";
+
+// interactionPhongShaderFP with the specular term removed. It is only used
+// when that term is exactly zero (black specular map or zero specular colour),
+// so "colour + 0" is dropped and everything else is computed in the same order.
+static const char * const interactionPhongNoSpecShaderFP = R"(
+#version 100
+precision highp float;
+
+varying vec2 var_TexDiffuse;
+varying vec2 var_TexNormal;
+varying vec4 var_TexLight;
+varying lowp vec4 var_Color;
+varying vec3 var_L;
+
+uniform lowp vec4 u_diffuseColor;
+uniform sampler2D u_fragmentMap0; // u_bumpTexture
+uniform sampler2D u_fragmentMap1; // u_lightFalloffTexture
+uniform sampler2D u_fragmentMap2; // u_lightProjectionTexture
+uniform sampler2D u_fragmentMap3; // u_diffuseTexture
+
+void main(void)
+{
+  vec3 L = normalize(var_L);
+  vec3 N = normalize(2.0 * texture2D(u_fragmentMap0, var_TexNormal.st).agb - 1.0);
+
+  float NdotL = clamp(dot(N, L), 0.0, 1.0);
+
+  vec3 lightProjection = texture2DProj(u_fragmentMap2, var_TexLight.xyw).rgb;
+  vec3 lightFalloff = texture2D(u_fragmentMap1, vec2(var_TexLight.z, 0.5)).rgb;
+  vec3 diffuseColor = texture2D(u_fragmentMap3, var_TexDiffuse).rgb * u_diffuseColor.rgb;
+
+  vec3 color;
+  color = diffuseColor;
+  color *= NdotL * lightProjection;
+  color *= lightFalloff;
+
+  gl_FragColor = vec4(color, 1.0) * var_Color;
+}
+)";
+
+// set while a light's surfaces are being drawn
+static shaderProgram_t *	piInteractionBase = NULL;	// program chosen for this light pass
+static bool					piInteractionAllowNoSpec = false;
+static float				piInteractionMVP[16];		// MVP of the surface being lit
 shaderProgram_t diffuseMapShader;
 shaderProgram_t diffuseCubeShader;
 shaderProgram_t skyboxCubeShader;
@@ -377,6 +455,20 @@ static bool RB_GLSL_InitShaders(void) {
 		RB_GLSL_GetUniformLocations(&interactionPhongShader);
 	}
 
+	// Pi: Phong interaction shader without the specular term (same vertex shader)
+	common->Printf("Loading main interaction shader (Phong, no specular) \n");
+	memset(&interactionPhongNoSpecShader, 0, sizeof(shaderProgram_t));
+
+	R_LoadGLSLShader(interactionPhongShaderVP, &interactionPhongNoSpecShader, GL_VERTEX_SHADER);
+	R_LoadGLSLShader(interactionPhongNoSpecShaderFP, &interactionPhongNoSpecShader, GL_FRAGMENT_SHADER);
+
+	if ( !R_LinkGLSLShader(&interactionPhongNoSpecShader, "interactionPhongNoSpec") &&
+	        !R_ValidateGLSLProgram(&interactionPhongNoSpecShader)) {
+		return false;
+	} else {
+		RB_GLSL_GetUniformLocations(&interactionPhongNoSpecShader);
+	}
+
 	// default diffuse shader
 	common->Printf("Loading default diffuse shader\n");
 	memset(&diffuseMapShader, 0, sizeof(shaderProgram_t));
@@ -441,6 +533,19 @@ static bool RB_GLSL_InitShaders(void) {
 		return false;
 	} else {
 		RB_GLSL_GetUniformLocations(&zfillShader);
+	}
+
+	// Pi: Z Fill shader for solid surfaces
+	common->Printf("Loading Zfill shader (opaque version)\n");
+	memset(&zfillOpaqueShader, 0, sizeof(shaderProgram_t));
+
+	R_LoadGLSLShader(zfillOpaqueShaderVP, &zfillOpaqueShader, GL_VERTEX_SHADER);
+	R_LoadGLSLShader(zfillOpaqueShaderFP, &zfillOpaqueShader, GL_FRAGMENT_SHADER);
+
+	if ( !R_LinkGLSLShader(&zfillOpaqueShader, "zfillOpaque") && !R_ValidateGLSLProgram(&zfillOpaqueShader)) {
+		return false;
+	} else {
+		RB_GLSL_GetUniformLocations(&zfillOpaqueShader);
 	}
 
 	// Z Fill shader, Clip planes version
@@ -548,6 +653,22 @@ static void RB_GLSL_DrawInteraction(const drawInteraction_t* din) {
 	static const GLfloat oneScaled[1] = { 1 / 255.0f };
 	static const GLfloat negOneScaled[1] = { -1.0f / 255.0f };
 
+	// Pi: the specular term is exactly zero when the specular map is the black
+	// image (no specular stage, or an ambient light) or the specular colour is
+	// zero. Those interactions use the shader without the specular maths.
+	const bool noSpec = piInteractionAllowNoSpec &&
+	        ( din->specularImage == globalImages->blackImage ||
+	          ( din->specularColor[0] == 0.0f && din->specularColor[1] == 0.0f && din->specularColor[2] == 0.0f ) );
+	shaderProgram_t* const wantProgram = noSpec ? &interactionPhongNoSpecShader : piInteractionBase;
+	if ( backEnd.glState.currentProgram != wantProgram ) {
+		GL_UseProgram(wantProgram);
+	}
+	if ( noSpec ) {
+		piFrameStats.noSpecDraws++;
+	}
+	// uniforms are stored per program, so the MVP is (re)sent to whichever is bound
+	GL_UniformMatrix4fv(offsetof(shaderProgram_t, modelViewProjectionMatrix), piInteractionMVP);
+
 	// load all the vertex program parameters
 	GL_Uniform4fv(offsetof(shaderProgram_t, localLightOrigin), din->localLightOrigin.ToFloatPtr());
 	GL_Uniform4fv(offsetof(shaderProgram_t, localViewOrigin), din->localViewOrigin.ToFloatPtr());
@@ -598,9 +719,11 @@ static void RB_GLSL_DrawInteraction(const drawInteraction_t* din) {
 	GL_SelectTexture(3);
 	din->diffuseImage->Bind();
 
-	// texture 4 is the per-surface specular map
-	GL_SelectTexture(4);
-	din->specularImage->Bind();
+	// texture 4 is the per-surface specular map (not read by the no-specular shader)
+	if ( !noSpec ) {
+		GL_SelectTexture(4);
+		din->specularImage->Bind();
+	}
 
 	// Be sure to activate Texture 0 for next interaction, or next pass
 	GL_SelectTexture(0);
@@ -801,6 +924,8 @@ static void RB_GLSL_CreateDrawInteractions(const drawSurf_t* surf, const viewLig
 	} else {
 		GL_UseProgram(&interactionShader);
 	}
+	piInteractionBase = backEnd.glState.currentProgram;
+	piInteractionAllowNoSpec = r_usePhong.GetBool() && r_interactionNoSpec.GetBool();
 
 	// Setup attributes arrays
 	// Vertex attribute is always enabled
@@ -831,9 +956,8 @@ static void RB_GLSL_CreateDrawInteractions(const drawSurf_t* surf, const viewLig
 		// perform setup here that will not change over multiple interaction passes
 
 		if ( surf->space != backEnd.currentSpace ) {
-			float mvp[16];
-			RB_ComputeMVP(surf, mvp);
-			GL_UniformMatrix4fv(offsetof(shaderProgram_t, modelViewProjectionMatrix), mvp);
+			// sent to the bound program by RB_GLSL_DrawInteraction
+			RB_ComputeMVP(surf, piInteractionMVP);
 		}
 
 		// Hack Depth Range if necessary
@@ -1447,8 +1571,10 @@ void RB_T_GLSL_FillDepthBuffer(const drawSurf_t* surf) {
 	// Setup attribute pointers
 	GL_VertexAttribPointer(offsetof(shaderProgram_t, attr_Vertex), 3, GL_FLOAT, false, sizeof(idDrawVert),
 	                       ac->xyz.ToFloatPtr());
-	GL_VertexAttribPointer(offsetof(shaderProgram_t, attr_TexCoord), 2, GL_FLOAT, false, sizeof(idDrawVert),
-	                       ac->st.ToFloatPtr());
+	if ( backEnd.glState.currentProgram->attr_TexCoord >= 0 ) {	// the opaque shader has no texcoords
+		GL_VertexAttribPointer(offsetof(shaderProgram_t, attr_TexCoord), 2, GL_FLOAT, false, sizeof(idDrawVert),
+		                       ac->st.ToFloatPtr());
+	}
 
 	bool drawSolid = false;
 
@@ -1660,6 +1786,12 @@ void RB_GLSL_FillDepthBuffer(drawSurf_t** drawSurfs, int numDrawSurfs) {
 	// Optimization to only change MVP matrix when needed
 	backEnd.currentSpace = NULL;
 
+	// Pi: solid surfaces use a shader with no texture read and no discard.
+	// Surfaces stay in their original order (mirrors rely on it); only the
+	// program changes. Views with clip planes keep the clip shader for everything.
+	shaderProgram_t* const zfillBase = backEnd.glState.currentProgram;
+	const bool useOpaqueZfill = r_zfillOpaque.GetBool() && !backEnd.viewDef->numClipPlanes;
+
 	for ( int i = 0; i < numDrawSurfs; i++ ) {
 
 		const drawSurf_t* const drawSurf = drawSurfs[i];
@@ -1668,8 +1800,18 @@ void RB_GLSL_FillDepthBuffer(drawSurf_t** drawSurfs, int numDrawSurfs) {
 		// GL shader setup for the current surface
 		///////////////////////////////////////////
 
-		// Change the MVP matrix if needed
-		if ( drawSurf->space != backEnd.currentSpace ) {
+		bool programChanged = false;
+		const materialCoverage_t coverage = drawSurf->material->Coverage();
+		if ( coverage != MC_TRANSLUCENT ) {	// translucent surfaces are skipped, don't switch for them
+			shaderProgram_t* const want = ( useOpaqueZfill && coverage == MC_OPAQUE ) ? &zfillOpaqueShader : zfillBase;
+			if ( backEnd.glState.currentProgram != want ) {
+				GL_UseProgram(want);
+				programChanged = true;
+			}
+		}
+
+		// Change the MVP matrix if needed (uniforms are stored per program)
+		if ( programChanged || drawSurf->space != backEnd.currentSpace ) {
 			float mvp[16];
 			RB_ComputeMVP(drawSurf, mvp);
 			// We can set the uniform now as it shader is already bound

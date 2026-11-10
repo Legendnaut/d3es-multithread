@@ -34,6 +34,10 @@ That's about **2.8× stock** in the benchmark. Real gameplay is heavier than the
   - Each light's surfaces are drawn grouped by space and material (`r_sortInteractions`). These passes are additive, so the order doesn't change the result, and the GPU's texture cache works better.
 - **Tile-GPU friendly:** depth and stencil are discarded before each swap via `GL_EXT_discard_framebuffer` (`r_discardDepthStencil`).
 - **Shader:** the Phong specular `pow(x, 3)` is replaced by `x*x*x` for the default exponent.
+- **Untested so far (branch `pi4-gpu-wins`), fps not measured yet:**
+  - The colour buffer is cleared at the start of each frame, so the tile GPU doesn't reload the previous frame (`r_clearColorBuffer`).
+  - Solid surfaces are depth-filled with a shader that has no texture read or discard (`r_zfillOpaque`).
+  - Surfaces with no specular are lit with a shader that skips the specular maths; the skipped term is exactly zero (`r_interactionNoSpec`).
 - Each of these switches defaults to `1`. Set one to `0` to turn its change off if you suspect a problem.
 
 **Driver (`pi4/mesa.sh`, `pi4/mesa-patches/`)**

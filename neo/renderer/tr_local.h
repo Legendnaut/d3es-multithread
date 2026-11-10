@@ -893,6 +893,7 @@ extern idCVar r_shadowLOD;
 struct piFrameStats_t {
 	int		draws;			// lighting/depth/gui draw calls
 	int		shadowDraws;	// shadow volume draw calls
+	int		noSpecDraws;	// lighting draws that used the no-specular shader
 	double	renderMs;		// render thread: whole frame task
 	double	swapMs;			// render thread: time inside SwapBuffers (GPU/vsync wait)
 };
